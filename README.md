@@ -1,3 +1,23 @@
+How to create a test device:
+
+    SIZE=$(( 1 * 1024 * 1024 * 1024 ))  # 1 GiB
+    truncate -s "$SIZE" /tmp/test
+    truncate -s "$(( $SIZE / 512 * 8 ))" /tmp/test-stat
+    >/tmp/test-mount
+    fuseloop -o allow_other /tmp/test /tmp/test-mount
+    losetup -f /tmp/test-mount
+
+View write statistics:
+
+    stat.pl </tmp/test-stat
+
+        2 writes: 18 sectors
+        1 writes: 1115 sectors
+        0 writes: 2096019 sectors
+
+
+
+
 fuseloop
 ========
 

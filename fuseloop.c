@@ -19,6 +19,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <linux/limits.h>
 
 #define VERSION "1.0"
 
@@ -38,6 +39,7 @@ struct cfg{
     off_t size_in_bytes;
     int open_as_readonly;
     int src_fd;
+    int stat_fd;
     int debug;
 };
 
@@ -176,6 +178,19 @@ static int fuseloop_write (const char *path, const char *buf, size_t size, off_t
     res = pwrite (conf->src_fd, buf, size, offs + conf->offset_in_bytes);
     if (res == -1)
         res = -errno;
+    else {
+        uint64_t count;
+        off_t sector = offs / 512 * sizeof(count);
+	res = pread (conf->stat_fd, &count, sizeof(count), sector);
+        if (res == -1)
+            res = -errno;
+        else {
+            count++;
+            res = pwrite (conf->stat_fd, &count, sizeof(count), sector);
+            if (res == -1)
+                res = -errno;
+        }
+    }
 
     return res;
 }
@@ -236,12 +251,15 @@ enum ERR_CODES {
 
 int main (int argc, char *argv[])
 {
+    int ret;
     int open_mode = O_RDWR;
     struct fuse_chan *chan = 0;
     struct fuse *fs = 0;
 
     struct cfg conf = { .size_in_bytes = -1, };
     struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+
+    char stat_file[PATH_MAX];
 
     // FIXME - need to set -odirect_io ?
 
@@ -269,6 +287,18 @@ int main (int argc, char *argv[])
     if (conf.src_fd < 0)
     {
         perror ("Unable to open source file");
+        return FAILED_OPEN;
+    }
+    ret = snprintf (stat_file, sizeof(stat_file), "%s-stat", conf.src_file);
+    if (ret < 0)
+    {
+        perror ("snprintf");
+        return FAILED_OPEN;
+    }
+    conf.stat_fd = open (stat_file, O_RDWR);
+    if (conf.stat_fd < 0)
+    {
+        perror ("Unable to open statistics file");
         return FAILED_OPEN;
     }
 
@@ -324,6 +354,7 @@ int main (int argc, char *argv[])
     fuse_remove_signal_handlers (fuse_get_session (fs));
     fuse_destroy (fs);
 
+    close (conf.stat_fd);
     close (conf.src_fd);
 
     return 0;
