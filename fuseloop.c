@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <linux/limits.h>
+#include <math.h>
 
 #define VERSION "1.0"
 
@@ -180,15 +181,21 @@ static int fuseloop_write (const char *path, const char *buf, size_t size, off_t
         res = -errno;
     else {
         uint64_t count;
-        off_t sector = offs / 512 * sizeof(count);
-	res = pread (conf->stat_fd, &count, sizeof(count), sector);
-        if (res == -1)
-            res = -errno;
-        else {
-            count++;
-            res = pwrite (conf->stat_fd, &count, sizeof(count), sector);
-            if (res == -1)
+        off_t sector = offs / 512;
+        off_t last_sector = sector + ceil(size / 512.0) - 1;
+        for (; sector <= last_sector; sector++) {
+            int stat_res = pread (conf->stat_fd, &count, sizeof(count), sector * sizeof(count));
+            if (stat_res == -1) {
                 res = -errno;
+                break;
+            } else {
+                count++;
+                stat_res = pwrite (conf->stat_fd, &count, sizeof(count), sector * sizeof(count));
+                if (stat_res == -1) {
+                    res = -errno;
+                    break;
+                }
+            }
         }
     }
 
